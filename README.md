@@ -27,4 +27,6 @@ cd Stoker
 
 It runs from the menu bar. There you can change the size and position, turn off the sound, or preview each mood without unplugging your charger.
 
+Don't want him on your desktop? Choose **Show Worker → In the Menu Bar**. He moves into a tiny animated icon in the menu bar; click it to open the furnace in a popover (click him there to poke him), and right-click for settings. While the popover is closed the scene is paused and silent.
+
 All the art and sounds are generated in code, so there are no asset files.
