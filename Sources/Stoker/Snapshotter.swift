@@ -12,6 +12,7 @@ enum Snapshotter {
         try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
 
         writeSheet(to: url.appendingPathComponent("poses.png"))
+        writeMenuBarSheet(to: url.appendingPathComponent("menubar.png"))
         write(upscale(icon().makeImage(), by: 16), to: url.appendingPathComponent("icon_1024.png"))
 
         let scale: CGFloat = 4
@@ -67,6 +68,27 @@ enum Snapshotter {
             for y in 0..<c.height { for x in 0..<c.width { if let p = c.get(x, y) { sheet.set(ox + x, oy + y, p) } } }
         }
         write(upscale(sheet.makeImage(), by: 6), to: url)
+    }
+
+    /// Every menu bar icon frame, one row per mood, on light and dark menu bar backgrounds.
+    private static func writeMenuBarSheet(to url: URL) {
+        let crop = MenuBarIcon.crop
+        let cw = Int(crop.width) + 4, ch = Int(crop.height) + 4
+        let rows = Mood.allCases.map { MenuBarIcon.poses(for: $0) }
+        let cols = rows.map(\.count).max() ?? 1
+        let sheet = PixelCanvas(cols * cw, rows.count * ch * 2)
+        sheet.fill(0, 0, sheet.width, sheet.height / 2, RGBA(0xE8E8EC))
+        sheet.fill(0, sheet.height / 2, sheet.width, sheet.height / 2, RGBA(0x2A2A30))
+        for half in 0..<2 {
+            for (r, poses) in rows.enumerated() {
+                for (i, pose) in poses.enumerated() {
+                    let c = WorkerArt.render(pose)
+                    let ox = i * cw + 2 - Int(crop.minX), oy = (half * rows.count + r) * ch + 2 - Int(crop.minY)
+                    for y in 0..<c.height { for x in 0..<c.width { if let p = c.get(x, y) { sheet.set(ox + x, oy + y, p) } } }
+                }
+            }
+        }
+        write(upscale(sheet.makeImage(), by: 4), to: url)
     }
 
     /// 64×64 pixel-art app icon: the stoker mid-throw next to a roaring furnace door.

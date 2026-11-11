@@ -12,6 +12,8 @@ final class StokerScene: SKScene {
 
     /// (effect, gain, pan)
     var onSound: ((Sfx, Float, Float) -> Void)?
+    /// Called on a click when not dragging (only reachable when hosted in the menu bar popover).
+    var onClick: (() -> Void)?
     var chatty = true
     var dragEnabled = false { didSet { moveHint.isHidden = !dragEnabled } }
 
@@ -275,7 +277,7 @@ final class StokerScene: SKScene {
     }
 
     override func mouseDown(with event: NSEvent) {
-        if dragEnabled { view?.window?.performDrag(with: event) }
+        if dragEnabled { view?.window?.performDrag(with: event) } else { onClick?() }
     }
 
     // MARK: Moods

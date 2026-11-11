@@ -29,6 +29,20 @@ enum ScreenCorner: String, CaseIterable, Identifiable {
     }
 }
 
+enum DisplayMode: String, CaseIterable, Identifiable {
+    /// A transparent window in a corner of the screen.
+    case desktop
+    /// Hidden in the menu bar; click the icon to see him.
+    case menuBar
+    var id: String { rawValue }
+    var title: String {
+        switch self {
+        case .desktop: "On the Desktop"
+        case .menuBar: "In the Menu Bar"
+        }
+    }
+}
+
 enum VolumeLevel: String, CaseIterable, Identifiable {
     case quiet, normal, loud
     var id: String { rawValue }
@@ -58,6 +72,14 @@ final class AppModel: ObservableObject {
     @Published var size: WorkerSize { didSet { defaults.set(size.rawValue, forKey: "size"); push() } }
     @Published var corner: ScreenCorner { didSet { defaults.set(corner.rawValue, forKey: "corner"); push() } }
     @Published var alwaysOnTop: Bool { didSet { defaults.set(alwaysOnTop, forKey: "alwaysOnTop"); push() } }
+    @Published var display: DisplayMode {
+        didSet {
+            defaults.set(display.rawValue, forKey: "display")
+            // Moving only applies to the desktop window; drop it rather than leave it stuck on.
+            if display == .menuBar { isMoving = false }
+            push()
+        }
+    }
     @Published var isMoving = false { didSet { push() } }
     @Published var loginError: String?
 
@@ -79,12 +101,14 @@ final class AppModel: ObservableObject {
 
     let sound = SoundBoard()
     private let power = PowerMonitor()
-    private var overlay: OverlayController?
+    private var stage: StageController?
+    private var statusItem: StatusItemController?
 
     init() {
         defaults.register(defaults: [
             "soundEnabled": true, "volume": VolumeLevel.normal.rawValue, "chatty": true,
             "size": WorkerSize.medium.rawValue, "corner": ScreenCorner.bottomRight.rawValue, "alwaysOnTop": true,
+            "display": DisplayMode.desktop.rawValue,
         ])
         soundEnabled = defaults.bool(forKey: "soundEnabled")
         volume = VolumeLevel(rawValue: defaults.string(forKey: "volume") ?? "") ?? .normal
@@ -92,6 +116,7 @@ final class AppModel: ObservableObject {
         size = WorkerSize(rawValue: defaults.integer(forKey: "size")) ?? .medium
         corner = ScreenCorner(rawValue: defaults.string(forKey: "corner") ?? "") ?? .bottomRight
         alwaysOnTop = defaults.bool(forKey: "alwaysOnTop")
+        display = DisplayMode(rawValue: defaults.string(forKey: "display") ?? "") ?? .desktop
         sound.enabled = soundEnabled
         sound.volume = volume.value
     }
@@ -99,7 +124,9 @@ final class AppModel: ObservableObject {
     var mood: Mood { preview ?? Mood(status) }
 
     func start() {
-        overlay = OverlayController(model: self)
+        let stage = StageController(model: self)
+        self.stage = stage
+        statusItem = StatusItemController(model: self, stage: stage)
         power.onChange = { [weak self] s in
             Task { @MainActor in
                 self?.status = s
@@ -110,17 +137,24 @@ final class AppModel: ObservableObject {
         push()
     }
 
-    func push() { overlay?.sync() }
+    func push() {
+        stage?.sync()
+        statusItem?.sync()
+    }
 
     func toggleMoving() {
-        if isMoving, let origin = overlay?.windowOrigin {
+        if isMoving, let origin = stage?.windowOrigin {
             customOrigin = origin
             corner = .custom
         }
         isMoving.toggle()
     }
 
-    func poke() { overlay?.poke() }
+    func poke() {
+        // Poking an invisible worker is no fun: open the popover first in menu bar mode.
+        if display == .menuBar { statusItem?.showPopover() }
+        stage?.poke()
+    }
 
     // MARK: Launch at login
 

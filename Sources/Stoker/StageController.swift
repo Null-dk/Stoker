@@ -7,15 +7,24 @@ final class OverlayWindow: NSWindow {
     override var canBecomeMain: Bool { false }
 }
 
+/// Owns the furnace scene and hosts it either in a desktop overlay window or in the
+/// menu bar popover's content view, depending on `AppModel.display`.
 @MainActor
-final class OverlayController: NSObject {
+final class StageController: NSObject {
     private unowned let model: AppModel
     private let window: OverlayWindow
     private let skView: SKView
     private let scene: StokerScene
+    /// Content view for the menu bar popover. The scene view moves in here in menu bar mode.
+    let popoverContent: NSView
     private var hasEnteredScene = false
     private var placedFor: (WorkerSize, ScreenCorner)?
+    private var hostedIn: DisplayMode?
     private var observers: [NSObjectProtocol] = []
+    private var screensAsleep = false
+
+    /// Set by the status item controller while the popover is on screen.
+    var popoverShown = false { didSet { updatePaused() } }
 
     var windowOrigin: CGPoint { window.frame.origin }
 
@@ -26,6 +35,7 @@ final class OverlayController: NSObject {
         window = OverlayWindow(contentRect: NSRect(origin: .zero, size: size),
                                styleMask: [.borderless], backing: .buffered, defer: false)
         skView = SKView(frame: NSRect(origin: .zero, size: size))
+        popoverContent = NSView(frame: NSRect(origin: .zero, size: size))
         super.init()
 
         window.isOpaque = false
@@ -38,10 +48,15 @@ final class OverlayController: NSObject {
         skView.allowsTransparency = true
         skView.preferredFramesPerSecond = 30
         skView.autoresizingMask = [.width, .height]
-        window.contentView = skView
 
-        scene.onSound = { [weak model] s, gain, pan in
-            model?.sound.play(s, gain: gain, pan: pan)
+        scene.onSound = { [weak self] s, gain, pan in
+            // In the menu bar he's out of sight until the popover opens, so keep quiet until then.
+            guard let self, self.model.display == .desktop || self.popoverShown else { return }
+            self.model.sound.play(s, gain: gain, pan: pan)
+        }
+        scene.onClick = { [weak self] in
+            // Clicking him is only possible inside the popover; the overlay ignores the mouse unless moving.
+            self?.scene.poke()
         }
         skView.presentScene(scene)
 
@@ -61,15 +76,16 @@ final class OverlayController: NSObject {
                 }
             })
         }
-
-        window.orderFrontRegardless()
     }
-
-    private var screensAsleep = false
 
     private func updatePaused() {
         // Don't burn battery animating something nobody can see.
-        skView.isPaused = screensAsleep || !window.occlusionState.contains(.visible)
+        let visible: Bool
+        switch model.display {
+        case .desktop: visible = window.occlusionState.contains(.visible)
+        case .menuBar: visible = popoverShown
+        }
+        skView.isPaused = screensAsleep || !visible
     }
 
     static func pixelSize(_ s: WorkerSize) -> CGSize {
@@ -78,6 +94,8 @@ final class OverlayController: NSObject {
     }
 
     func sync() {
+        if hostedIn != model.display { rehost() }
+
         // Window level: floating above apps, or sitting on the desktop behind them.
         window.level = model.alwaysOnTop
             ? .floating
@@ -89,9 +107,14 @@ final class OverlayController: NSObject {
         scene.chatty = model.chatty
 
         // Size & position
-        if placedFor == nil || placedFor! != (model.size, model.corner) {
-            place()
-            placedFor = (model.size, model.corner)
+        switch model.display {
+        case .desktop:
+            if placedFor == nil || placedFor! != (model.size, model.corner) {
+                place()
+                placedFor = (model.size, model.corner)
+            }
+        case .menuBar:
+            popoverContent.setFrameSize(Self.pixelSize(model.size))
         }
 
         // Lower frame rate on battery
@@ -100,6 +123,26 @@ final class OverlayController: NSObject {
         let mood = model.mood
         scene.apply(mood: mood, status: model.status, animated: hasEnteredScene)
         hasEnteredScene = true
+        updatePaused()
+    }
+
+    /// Moves the scene view between the overlay window and the popover.
+    private func rehost() {
+        skView.removeFromSuperview()
+        switch model.display {
+        case .desktop:
+            skView.frame = NSRect(origin: .zero, size: Self.pixelSize(model.size))
+            window.contentView = skView
+            placedFor = nil
+            window.orderFrontRegardless()
+        case .menuBar:
+            window.orderOut(nil)
+            window.contentView = NSView()
+            popoverContent.setFrameSize(Self.pixelSize(model.size))
+            skView.frame = popoverContent.bounds
+            popoverContent.addSubview(skView)
+        }
+        hostedIn = model.display
     }
 
     func poke() { scene.poke() }
