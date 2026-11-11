@@ -1,15 +1,29 @@
 import AppKit
-import SwiftUI
 
+/// Plain AppKit entry point. A SwiftUI `App` needs at least one scene, and the only
+/// windowless option, an empty `Settings` scene, gets shown as a blank "Stoker Settings"
+/// window when macOS launches or reopens the app. The menu bar item is an AppKit
+/// NSStatusItem anyway (see StatusItemController), so SwiftUI's lifecycle isn't needed.
 @main
-struct StokerApp: App {
-    @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
+enum StokerApp {
+    @MainActor static func main() {
+        let app = NSApplication.shared
+        let delegate = AppDelegate()
+        app.delegate = delegate
+        app.mainMenu = quitOnlyMenu()
+        withExtendedLifetime(delegate) { app.run() }
+    }
 
-    // The menu bar item is an AppKit NSStatusItem (see StatusItemController) so it can
-    // open a popover on click and the menu on right-click. SwiftUI just needs some scene.
-    var body: some Scene {
-        // commandsRemoved: no "Settings…" / Cmd-, opening a blank window while the popover has focus.
-        Settings { EmptyView() }.commandsRemoved()
+    /// The menu bar is hidden (LSUIElement), but its shortcuts still fire while the
+    /// popover has focus. Keep Cmd-Q working there; deliberately no Settings item.
+    @MainActor private static func quitOnlyMenu() -> NSMenu {
+        let appMenu = NSMenu()
+        appMenu.addItem(withTitle: "Quit Stoker", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        let appItem = NSMenuItem()
+        appItem.submenu = appMenu
+        let main = NSMenu()
+        main.addItem(appItem)
+        return main
     }
 }
 
