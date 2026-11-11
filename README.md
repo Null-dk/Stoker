@@ -1,0 +1,30 @@
+# Stoker
+
+A little pixel-art worker that lives in the corner of your Mac's screen and reacts to your charger.
+
+![Shovelling coal](docs/shovelling.png)
+
+- **Charging:** shovels coal into the furnace. A faster charger means faster shovelling.
+- **Unplugged:** throws the shovel away and gets out the beach chair.
+- **Low battery:** starts panicking.
+- **100%:** gets buried in coal.
+- **Charging paused** (optimized charging): coffee break.
+
+The plaque on the furnace shows your battery percentage.
+
+![On battery](docs/vacation.png)
+![Fully charged](docs/full.png)
+
+## Install
+
+You need macOS 13 or newer and the Xcode Command Line Tools (`xcode-select --install`).
+
+```
+git clone https://github.com/Null-dk/Stoker.git
+cd Stoker
+./build.sh --install --run
+```
+
+It runs from the menu bar. There you can change the size and position, turn off the sound, or preview each mood without unplugging your charger.
+
+All the art and sounds are generated in code, so there are no asset files.
