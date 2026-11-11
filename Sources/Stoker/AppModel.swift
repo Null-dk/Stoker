@@ -119,9 +119,41 @@ final class AppModel: ObservableObject {
         display = DisplayMode(rawValue: defaults.string(forKey: "display") ?? "") ?? .desktop
         sound.enabled = soundEnabled
         sound.volume = volume.value
+        liveMood = Mood(status)
     }
 
-    var mood: Mood { preview ?? Mood(status) }
+    var mood: Mood { preview ?? liveMood }
+
+    /// The battery-driven mood, after smoothing out macOS's brief "plugged in, not charging"
+    /// report that comes right before charging starts.
+    private(set) var liveMood: Mood = .shovelling
+    private var pendingBreak: Timer?
+    /// How long to wait after plugging in before believing charging is really paused.
+    static let breakGrace: TimeInterval = 6
+
+    private func updateLiveMood() {
+        let raw = Mood(status)
+        if raw == .onBreak && !liveMood.isPluggedIn {
+            // Just plugged in and macOS doesn't say "charging" yet. Usually it will in a second
+            // or two; without this he'd sit down for coffee and then jump up to shovel.
+            guard pendingBreak == nil else { return }
+            let timer = Timer(timeInterval: Self.breakGrace, repeats: false) { [weak self] _ in
+                Task { @MainActor in
+                    guard let self else { return }
+                    self.pendingBreak = nil
+                    self.liveMood = Mood(self.status)
+                    self.push()
+                }
+            }
+            // .common so it still fires while the settings menu is open.
+            RunLoop.main.add(timer, forMode: .common)
+            pendingBreak = timer
+            return
+        }
+        pendingBreak?.invalidate()
+        pendingBreak = nil
+        liveMood = raw
+    }
 
     func start() {
         let stage = StageController(model: self)
@@ -130,6 +162,7 @@ final class AppModel: ObservableObject {
         power.onChange = { [weak self] s in
             Task { @MainActor in
                 self?.status = s
+                self?.updateLiveMood()
                 self?.push()
             }
         }
@@ -178,7 +211,7 @@ final class AppModel: ObservableObject {
     }
 
     var detail: String {
-        if preview != nil { return "Previewing — real state: \(Mood(status).title.lowercased())" }
+        if preview != nil { return "Previewing — real state: \(liveMood.title.lowercased())" }
         switch mood {
         case .shovelling:
             var parts: [String] = []
