@@ -25,10 +25,13 @@ final class StokerScene: SKScene {
     private var hasBattery = true
     private var watts: Int?
     private var minutesLeft: Int?
+    private var deficit: Int?
     /// In alternate mode, whether the plaque is currently on its time side.
     private var showingTime = false
     private var plaqueText = ""
-    private var cycle: TimeInterval = 1.3
+    private var effort: Effort = .steady
+    /// mW going into the battery; sizes the fire while plugged in.
+    private var chargeMilliwatts: Int?
 
     private let platform = SKSpriteNode()
     private let parasol = SKSpriteNode()
@@ -51,6 +54,7 @@ final class StokerScene: SKScene {
     private var glowBase: CGFloat = 0.4
     private var flare: CGFloat = 0
     private var pileStep = 0
+    private var pourEvery: TimeInterval?
 
     // MARK: Cached textures
 
@@ -61,6 +65,7 @@ final class StokerScene: SKScene {
     private static let sparkTexture = PropArt.disc(1)
     private static let shovelTexture = PropArt.shovel().texture()
     private static let shovelFrames = WorkerArt.shovelCycle.frames.map { WorkerArt.render($0).texture() }
+    private static let sweatyShovelFrames = WorkerArt.sweatyShovelCycle.map { WorkerArt.render($0).texture() }
     private static let pileSteps: [(texture: SKTexture, w: Int, h: Int, cx: CGFloat)] = (0...12).map { i in
         let t = CGFloat(i) / 12
         var w = Int((22 + 50 * t).rounded())
@@ -170,7 +175,7 @@ final class StokerScene: SKScene {
         plaque.run(.repeatForever(.sequence([
             .wait(forDuration: Self.plaqueFlipInterval),
             .run { [weak self] in
-                guard let self, self.plaqueMode == .alternate else { return }
+                guard let self, self.plaqueMode == .alternate || self.mood == .overworked else { return }
                 self.showingTime.toggle()
                 self.refreshPlaque()
             },
@@ -259,28 +264,33 @@ final class StokerScene: SKScene {
         hasBattery = status.hasBattery
         watts = status.watts
         minutesLeft = Self.minutesLeft(status)
+        deficit = status.deficitWatts
+        chargeMilliwatts = status.batteryMilliwatts
         refreshPlaque()
 
-        let newCycle = Self.cycleDuration(watts: status.watts)
-        let cycleChanged = abs(newCycle - cycle) > 0.01
-        cycle = newCycle
+        let newEffort = Effort(status)
+        let effortChanged = newEffort != effort
+        effort = newEffort
 
+        let wasOverworked = mood == .overworked
         guard new != mood else {
             if action(forKey: "transition") == nil {
-                if new == .shovelling && cycleChanged { startShovelling() }
-                if new == .vacation { setFire(fireLevel(for: .vacation)) }
+                if new == .shovelling && effortChanged { startShovelling() }
+                if new.isShovelling { setPouring(true, interval: Self.pourInterval(watts: watts)) }
+                if new == .vacation || new.isShovelling { setFire(fireLevel(for: new)) }
             }
             return
         }
         let old = mood
         mood = new
         removeAction(forKey: "transition")
+        if wasOverworked != (new == .overworked) { refreshPlaque(force: true) }
         if animated, let old { runTransition(from: old, to: new) } else { enter(new, animated: false) }
     }
 
     /// Say something right now, regardless of the chatter setting.
     func poke() {
-        guard let m = mood, let line = m.lines(watts: watts).randomElement() else { return }
+        guard let m = mood, let line = m.lines(watts: watts, deficit: deficit, effort: effort).randomElement() else { return }
         say(line)
         sound(.pop, 0.3)
     }
@@ -305,26 +315,31 @@ final class StokerScene: SKScene {
         return "\(m / 60):" + String(format: "%02d", m % 60)
     }
 
-    static func plaqueText(mode: PlaqueMode, showingTime: Bool, percent: Int, hasBattery: Bool, minutesLeft: Int?) -> String {
+    static func plaqueText(mode: PlaqueMode, showingTime: Bool, percent: Int, hasBattery: Bool, minutesLeft: Int?,
+                           deficit: Int? = nil) -> String {
         guard hasBattery else { return "AC" }
+        // Losing power while plugged in: always alternate with how much is leaking out, whatever the mode.
+        if let d = deficit { return showingTime ? "-\(min(d, 99))W" : "\(percent)%" }
         let wantsTime = mode == .time || (mode == .alternate && showingTime)
         // No estimate (just plugged in or unplugged): fall back to the percentage.
         if wantsTime, let m = minutesLeft { return clock(m) }
         return "\(percent)%"
     }
 
-    private func refreshPlaque() {
+    private func refreshPlaque(force: Bool = false) {
+        let losing = mood == .overworked ? deficit : nil
         let text = Self.plaqueText(mode: plaqueMode, showingTime: showingTime, percent: percent,
-                                   hasBattery: hasBattery, minutesLeft: minutesLeft)
-        guard text != plaqueText else { return }
+                                   hasBattery: hasBattery, minutesLeft: minutesLeft, deficit: losing)
+        guard force || text != plaqueText else { return }
         plaqueText = text
-        setArt(plaque, PropArt.digits(text))
+        // Red while the battery drains on the charger, so "57%" doesn't look like good news.
+        setArt(plaque, PropArt.digits(text, color: losing == nil ? Pal.mortar : Pal.red))
     }
 
-    /// Faster chargers make for frantic shovelling.
-    static func cycleDuration(watts: Int?) -> TimeInterval {
-        guard let w = watts else { return 1.3 }
-        return max(0.75, min(1.7, 1.75 - Double(w - 20) / 90))
+    /// Seconds between lumps falling from the plug: a bigger charger pours more coal.
+    static func pourInterval(watts: Int?) -> TimeInterval {
+        guard let w = watts, w > 0 else { return 0.22 }
+        return max(0.12, min(0.8, 13 / Double(w)))
     }
 
     override func mouseDown(with event: NSEvent) {
@@ -335,11 +350,15 @@ final class StokerScene: SKScene {
 
     private func fireLevel(for m: Mood) -> Int {
         switch m {
-        case .shovelling: 3
-        case .onBreak: 1
-        case .full: 2
-        case .vacation: percent > 50 ? 1 : 0
-        case .panicking: 0
+        case .shovelling:
+            // The fire shows what actually reaches the battery, not how hard he works.
+            guard let mw = chargeMilliwatts else { return 3 }
+            return mw >= 12_000 ? 3 : mw >= 4_000 ? 2 : 1
+        case .onBreak: return 1
+        case .overworked: return 0
+        case .full: return 2
+        case .vacation: return percent > 50 ? 1 : 0
+        case .panicking: return 0
         }
     }
 
@@ -356,11 +375,12 @@ final class StokerScene: SKScene {
         show(shovelStuck, m == .onBreak || m == .vacation || m == .panicking, animated: animated)
         growMountain(m == .full, animated: animated)
         setPlug(lowered: m.isPluggedIn, animated: animated)
-        setPouring(m == .shovelling || m == .full, interval: m == .full ? 0.07 : 0.22)
+        // A weak charger only trickles coal in.
+        setPouring(m.isShovelling || m == .full, interval: m == .full ? 0.07 : Self.pourInterval(watts: watts))
         setFire(fireLevel(for: m))
 
         switch m {
-        case .shovelling:
+        case .shovelling, .overworked:
             startShovelling()
         case .onBreak:
             worker.texture = tex("sit")
@@ -426,9 +446,11 @@ final class StokerScene: SKScene {
 
     private func startShovelling() {
         let c = WorkerArt.shovelCycle
-        let tpf = cycle / Double(c.frames.count)
+        let overworked = mood == .overworked
+        let frames = overworked ? Self.sweatyShovelFrames : Self.shovelFrames
+        let tpf = (overworked ? Effort.overworkedCycle : effort.cycle) / Double(frames.count)
         var seq: [SKAction] = []
-        for (i, t) in Self.shovelFrames.enumerated() {
+        for (i, t) in frames.enumerated() {
             seq.append(.setTexture(t))
             if i == c.scrapeAt { seq.append(.run { [weak self] in self?.sound(.scrape, 0.3, -0.3) }) }
             if i == c.releaseAt { seq.append(.run { [weak self] in self?.throwCoal() }) }
@@ -456,7 +478,7 @@ final class StokerScene: SKScene {
         steam.particleBirthRate = 0
 
         var steps: [SKAction] = [.wait(forDuration: 0.3)]
-        if old == .shovelling {
+        if old.isShovelling {
             steps.append(.run { [weak self] in self?.throwShovel() })
             steps.append(.wait(forDuration: 0.9))
         }
@@ -493,7 +515,7 @@ final class StokerScene: SKScene {
             },
             .wait(forDuration: 1.0),
         ]
-        if new == .shovelling {
+        if new.isShovelling {
             steps.append(.run { [weak self] in self?.fetchShovel() })
             steps.append(.wait(forDuration: 0.4))
         }
@@ -619,7 +641,9 @@ final class StokerScene: SKScene {
     }
 
     private func setPouring(_ on: Bool, interval: TimeInterval = 0.22) {
+        if on, interval == pourEvery, action(forKey: "pour") != nil { return }
         removeAction(forKey: "pour")
+        pourEvery = on ? interval : nil
         guard on else { return }
         run(.repeatForever(.sequence([
             .run { [weak self] in self?.dribble() },
@@ -698,7 +722,7 @@ final class StokerScene: SKScene {
         switch mood {
         case .vacation where action(forKey: "transition") == nil: return CGPoint(x: x - 5, y: 28)
         case .onBreak: return CGPoint(x: x, y: 30)
-        case .shovelling: return CGPoint(x: x + 3, y: 31)
+        case .shovelling, .overworked: return CGPoint(x: x + 3, y: 31)
         default: return CGPoint(x: x, y: 32)
         }
     }
@@ -726,7 +750,8 @@ final class StokerScene: SKScene {
             .wait(forDuration: 45, withRange: 30),
             .run { [weak self] in
                 guard let self, self.chatty, self.action(forKey: "transition") == nil,
-                      let line = self.mood?.lines(watts: self.watts).randomElement() else { return }
+                      let line = self.mood?.lines(watts: self.watts, deficit: self.deficit, effort: self.effort).randomElement()
+                else { return }
                 self.say(line)
             },
         ])), withKey: "chatter")

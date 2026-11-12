@@ -12,7 +12,7 @@ final class StatusItemController: NSObject, NSMenuDelegate, NSPopoverDelegate {
     private let popover = NSPopover()
 
     private var iconTimer: Timer?
-    private var iconKey: (Mood, Int?, DisplayMode)?
+    private var iconKey: (Mood, Effort?, DisplayMode)?
     private var iconFrame = 0
     private var screensAsleep = false
     private var menuOpen = false
@@ -108,9 +108,10 @@ final class StatusItemController: NSObject, NSMenuDelegate, NSPopoverDelegate {
     private func updateIcon() {
         guard let button = statusItem.button else { return }
         let mood = model.mood
-        let watts = mood == .shovelling ? model.status.watts : nil
-        if let k = iconKey, k.0 == mood, k.1 == watts, k.2 == model.display { return }
-        iconKey = (mood, watts, model.display)
+        let effort = Effort(model.status)
+        let speedKey = mood == .shovelling ? effort : nil
+        if let k = iconKey, k.0 == mood, k.1 == speedKey, k.2 == model.display { return }
+        iconKey = (mood, speedKey, model.display)
         iconTimer?.invalidate()
         iconTimer = nil
 
@@ -121,7 +122,7 @@ final class StatusItemController: NSObject, NSMenuDelegate, NSPopoverDelegate {
             button.image = img
             button.setAccessibilityLabel("Stoker: \(mood.title)")
         case .menuBar:
-            let anim = MenuBarIcon.animation(for: mood, watts: watts)
+            let anim = MenuBarIcon.animation(for: mood, effort: effort)
             iconFrame = 0
             button.image = anim.frames.first
             button.setAccessibilityLabel("Stoker: \(mood.title)")

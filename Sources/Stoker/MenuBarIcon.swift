@@ -9,11 +9,13 @@ enum MenuBarIcon {
         let frameDuration: TimeInterval
     }
 
-    static func animation(for mood: Mood, watts: Int?) -> Animation {
+    static func animation(for mood: Mood, effort: Effort) -> Animation {
         let frames = images(for: mood)
         switch mood {
         case .shovelling:
-            return Animation(frames: frames, frameDuration: StokerScene.cycleDuration(watts: watts) / Double(frames.count))
+            return Animation(frames: frames, frameDuration: effort.cycle / Double(frames.count))
+        case .overworked:
+            return Animation(frames: frames, frameDuration: Effort.overworkedCycle / Double(frames.count))
         case .onBreak, .vacation: return Animation(frames: frames, frameDuration: 0.6)
         case .full: return Animation(frames: frames, frameDuration: 0.35)
         case .panicking: return Animation(frames: frames, frameDuration: 0.12)
@@ -24,6 +26,7 @@ enum MenuBarIcon {
     static func poses(for mood: Mood) -> [Pose] {
         switch mood {
         case .shovelling: WorkerArt.shovelCycle.frames
+        case .overworked: WorkerArt.sweatyShovelCycle
         case .onBreak: Array(repeating: WorkerArt.sit, count: 5) + Array(repeating: WorkerArt.sitSip, count: 2)
         case .full: [WorkerArt.wave(0), WorkerArt.wave(1)]
         case .vacation: Array(repeating: WorkerArt.recline, count: 10) + Array(repeating: WorkerArt.reclineSip, count: 3)
