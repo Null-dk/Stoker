@@ -15,12 +15,19 @@ final class StokerScene: SKScene {
     /// Called on a click when not dragging (only reachable when hosted in the menu bar popover).
     var onClick: (() -> Void)?
     var chatty = true
+    var plaqueMode: PlaqueMode = .percentage {
+        didSet { if plaqueMode != oldValue { showingTime = plaqueMode == .time; refreshPlaque() } }
+    }
     var dragEnabled = false { didSet { moveHint.isHidden = !dragEnabled } }
 
     private(set) var mood: Mood?
     private var percent = 100
     private var hasBattery = true
     private var watts: Int?
+    private var minutesLeft: Int?
+    /// In alternate mode, whether the plaque is currently on its time side.
+    private var showingTime = false
+    private var plaqueText = ""
     private var cycle: TimeInterval = 1.3
 
     private let platform = SKSpriteNode()
@@ -160,6 +167,14 @@ final class StokerScene: SKScene {
 
         plaque.anchorPoint = CGPoint(x: 0.5, y: 0)
         place(plaque, 84, 27, z: 4)
+        plaque.run(.repeatForever(.sequence([
+            .wait(forDuration: Self.plaqueFlipInterval),
+            .run { [weak self] in
+                guard let self, self.plaqueMode == .alternate else { return }
+                self.showingTime.toggle()
+                self.refreshPlaque()
+            },
+        ])))
 
         setArt(chair, PropArt.chair())
         chair.anchorPoint = CGPoint(x: 0.5, y: 0)
@@ -240,11 +255,11 @@ final class StokerScene: SKScene {
     // MARK: Public API
 
     func apply(mood new: Mood, status: PowerStatus, animated: Bool) {
-        let percentChanged = status.percent != percent || status.hasBattery != hasBattery || plaque.texture == nil
         percent = status.percent
         hasBattery = status.hasBattery
         watts = status.watts
-        if percentChanged { setArt(plaque, PropArt.digits(hasBattery ? "\(percent)%" : "AC")) }
+        minutesLeft = Self.minutesLeft(status)
+        refreshPlaque()
 
         let newCycle = Self.cycleDuration(watts: status.watts)
         let cycleChanged = abs(newCycle - cycle) > 0.01
@@ -268,6 +283,42 @@ final class StokerScene: SKScene {
         guard let m = mood, let line = m.lines(watts: watts).randomElement() else { return }
         say(line)
         sound(.pop, 0.3)
+    }
+
+    // MARK: Plaque
+
+    static let plaqueFlipInterval: TimeInterval = 4
+
+    /// Minutes until full while charging, or until empty on battery. Nil when macOS has
+    /// no estimate yet, or when there's nothing to count (full, or charging paused).
+    static func minutesLeft(_ s: PowerStatus) -> Int? {
+        // Same precedence as Mood: at 100% macOS may still report "charging" while topping off.
+        guard s.hasBattery, !s.isCharged, s.percent < 100 else { return nil }
+        if s.isCharging { return s.minutesToFull }
+        if !s.onAC { return s.minutesToEmpty }
+        return nil
+    }
+
+    /// "1:23" fits the plaque the same as "100%" does. Capped at 9:59 to stay four characters.
+    static func clock(_ minutes: Int) -> String {
+        let m = min(max(0, minutes), 9 * 60 + 59)
+        return "\(m / 60):" + String(format: "%02d", m % 60)
+    }
+
+    static func plaqueText(mode: PlaqueMode, showingTime: Bool, percent: Int, hasBattery: Bool, minutesLeft: Int?) -> String {
+        guard hasBattery else { return "AC" }
+        let wantsTime = mode == .time || (mode == .alternate && showingTime)
+        // No estimate (just plugged in or unplugged): fall back to the percentage.
+        if wantsTime, let m = minutesLeft { return clock(m) }
+        return "\(percent)%"
+    }
+
+    private func refreshPlaque() {
+        let text = Self.plaqueText(mode: plaqueMode, showingTime: showingTime, percent: percent,
+                                   hasBattery: hasBattery, minutesLeft: minutesLeft)
+        guard text != plaqueText else { return }
+        plaqueText = text
+        setArt(plaque, PropArt.digits(text))
     }
 
     /// Faster chargers make for frantic shovelling.

@@ -157,6 +157,9 @@ final class StatusItemController: NSObject, NSMenuDelegate, NSPopoverDelegate {
         menu.addItem(submenu("Volume", enabled: model.soundEnabled, VolumeLevel.allCases.map { v in
             ActionItem(v.title, checked: model.volume == v) { [model] in model.volume = v }
         }))
+        menu.addItem(submenu("Plaque Shows", PlaqueMode.allCases.map { p in
+            ActionItem(p.title, checked: model.plaqueMode == p) { [model] in model.plaqueMode = p }
+        }))
         menu.addItem(.separator())
 
         menu.addItem(submenu("Show Worker", DisplayMode.allCases.map { d in

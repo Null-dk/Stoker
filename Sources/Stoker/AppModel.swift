@@ -43,6 +43,19 @@ enum DisplayMode: String, CaseIterable, Identifiable {
     }
 }
 
+/// What the brass plaque on the furnace shows.
+enum PlaqueMode: String, CaseIterable, Identifiable {
+    case percentage, time, alternate
+    var id: String { rawValue }
+    var title: String {
+        switch self {
+        case .percentage: "Percentage"
+        case .time: "Time Remaining"
+        case .alternate: "Alternate Both"
+        }
+    }
+}
+
 enum VolumeLevel: String, CaseIterable, Identifiable {
     case quiet, normal, loud
     var id: String { rawValue }
@@ -69,6 +82,9 @@ final class AppModel: ObservableObject {
         didSet { defaults.set(volume.rawValue, forKey: "volume"); sound.volume = volume.value }
     }
     @Published var chatty: Bool { didSet { defaults.set(chatty, forKey: "chatty"); push() } }
+    @Published var plaqueMode: PlaqueMode {
+        didSet { defaults.set(plaqueMode.rawValue, forKey: "plaqueMode"); push() }
+    }
     @Published var size: WorkerSize { didSet { defaults.set(size.rawValue, forKey: "size"); push() } }
     @Published var corner: ScreenCorner { didSet { defaults.set(corner.rawValue, forKey: "corner"); push() } }
     @Published var alwaysOnTop: Bool { didSet { defaults.set(alwaysOnTop, forKey: "alwaysOnTop"); push() } }
@@ -108,11 +124,12 @@ final class AppModel: ObservableObject {
         defaults.register(defaults: [
             "soundEnabled": true, "volume": VolumeLevel.normal.rawValue, "chatty": true,
             "size": WorkerSize.medium.rawValue, "corner": ScreenCorner.bottomRight.rawValue, "alwaysOnTop": true,
-            "display": DisplayMode.desktop.rawValue,
+            "display": DisplayMode.desktop.rawValue, "plaqueMode": PlaqueMode.percentage.rawValue,
         ])
         soundEnabled = defaults.bool(forKey: "soundEnabled")
         volume = VolumeLevel(rawValue: defaults.string(forKey: "volume") ?? "") ?? .normal
         chatty = defaults.bool(forKey: "chatty")
+        plaqueMode = PlaqueMode(rawValue: defaults.string(forKey: "plaqueMode") ?? "") ?? .percentage
         size = WorkerSize(rawValue: defaults.integer(forKey: "size")) ?? .medium
         corner = ScreenCorner(rawValue: defaults.string(forKey: "corner") ?? "") ?? .bottomRight
         alwaysOnTop = defaults.bool(forKey: "alwaysOnTop")

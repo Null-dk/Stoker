@@ -154,7 +154,7 @@ final class PixelCanvas {
     }
 }
 
-/// A 3×5 upper-case pixel font.
+/// A 3×5 upper-case pixel font. Glyphs are 3 wide except narrow punctuation like ":".
 enum PixelFont {
     static let glyphs: [Character: [String]] = [
         "A": [".#.", "#.#", "###", "#.#", "#.#"], "B": ["##.", "#.#", "##.", "#.#", "##."],
@@ -172,22 +172,26 @@ enum PixelFont {
         "Y": ["#.#", "#.#", ".#.", ".#.", ".#."], "Z": ["###", "..#", ".#.", "#..", "###"],
         "0": ["###", "#.#", "#.#", "#.#", "###"], "1": [".#.", "##.", ".#.", ".#.", "###"],
         "2": ["##.", "..#", ".#.", "#..", "###"], "3": ["##.", "..#", ".#.", "..#", "##."],
-        "4": ["#.#", "#.#", "###", "..#", "..#"], "5": ["###", "#..", "##.", "..#", "##."],
+        "4": ["..#", ".##", "#.#", "###", "..#"], "5": ["###", "#..", "##.", "..#", "##."],
         "6": [".##", "#..", "###", "#.#", "###"], "7": ["###", "..#", ".#.", ".#.", ".#."],
         "8": ["###", "#.#", "###", "#.#", "###"], "9": ["###", "#.#", "###", "..#", "##."],
         "!": [".#.", ".#.", ".#.", "...", ".#."], "?": ["##.", "..#", ".#.", "...", ".#."],
         ".": ["...", "...", "...", "...", ".#."], ",": ["...", "...", "...", ".#.", "#.."],
         "'": [".#.", ".#.", "...", "...", "..."], "%": ["#.#", "..#", ".#.", "#..", "#.#"],
-        "-": ["...", "...", "###", "...", "..."], ":": ["...", ".#.", "...", ".#.", "..."],
+        "-": ["...", "...", "###", "...", "..."], ":": [".", "#", ".", "#", "."],
         " ": ["...", "...", "...", "...", "..."],
     ]
 
-    static func width(_ s: String) -> Int { max(0, s.count * 4 - 1) }
+    /// Horizontal space a character takes, including the 1px gap after it.
+    private static func advance(_ ch: Character) -> Int { (glyphs[ch]?.first?.count ?? 3) + 1 }
+
+    static func width(_ s: String) -> Int { max(0, s.uppercased().reduce(0) { $0 + advance($1) } - 1) }
 
     static func draw(_ s: String, on c: PixelCanvas, x: Int, y: Int, color: RGBA) {
-        for (i, ch) in s.uppercased().enumerated() {
-            guard let g = glyphs[ch] else { continue }
-            c.blit(g, x: x + i * 4, y: y, palette: ["#": color])
+        var cx = x
+        for ch in s.uppercased() {
+            if let g = glyphs[ch] { c.blit(g, x: cx, y: y, palette: ["#": color]) }
+            cx += advance(ch)
         }
     }
 
