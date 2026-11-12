@@ -141,38 +141,55 @@ final class AppModel: ObservableObject {
 
     var mood: Mood { preview ?? liveMood }
 
-    /// The battery-driven mood, after smoothing out macOS's brief "plugged in, not charging"
-    /// report that comes right before charging starts.
+    /// The battery-driven mood, after smoothing out what macOS reports right after plugging in.
     private(set) var liveMood: Mood = .shovelling
-    private var pendingBreak: Timer?
-    /// How long to wait after plugging in before believing charging is really paused.
+    /// When the charger was connected; nil on battery.
+    private var pluggedInAt: Date?
+    private var settleTimers: [Timer] = []
+    /// The battery current lags behind the plug, so for a few seconds it can still read
+    /// "draining", and Macs that don't say why they aren't charging briefly look paused.
     static let breakGrace: TimeInterval = 6
+    /// "Not charging, no reason given" for longer than this is a pause after all.
+    static let warmUpLimit: TimeInterval = 120
 
     private func updateLiveMood() {
-        let raw = Mood(status)
-        if (raw == .onBreak || raw == .overworked) && !liveMood.isPluggedIn {
-            // Just plugged in and macOS doesn't say "charging" yet. Usually it will in a second
-            // or two; without this he'd sit down for coffee and then jump up to shovel. The battery
-            // current also lags behind, so it can still read "draining" for a moment.
-            guard pendingBreak == nil else { return }
-            let timer = Timer(timeInterval: Self.breakGrace, repeats: false) { [weak self] _ in
-                Task { @MainActor in
-                    guard let self else { return }
-                    self.pendingBreak = nil
-                    // The 30 s poll may not have run since; read fresh numbers.
-                    self.status = PowerMonitor.read()
-                    self.liveMood = Mood(self.status)
-                    self.push()
-                }
-            }
-            // .common so it still fires while the settings menu is open.
-            RunLoop.main.add(timer, forMode: .common)
-            pendingBreak = timer
+        var raw = Mood(status)
+        if !raw.isPluggedIn {
+            pluggedInAt = nil
+            settleTimers.forEach { $0.invalidate() }
+            settleTimers = []
+        } else if pluggedInAt == nil {
+            pluggedInAt = Date()
+            // The 30 s poll may not land in time; look again once each grace period is up.
+            scheduleRecheck(after: Self.breakGrace + 0.1)
+            scheduleRecheck(after: Self.warmUpLimit + 0.1)
+        }
+        let age = pluggedInAt.map { Date().timeIntervalSince($0) } ?? .infinity
+
+        if age < Self.breakGrace && raw == .overworked {
+            // A stale "draining" reading from before the plug went in.
+            raw = status.isCharging ? .shovelling : status.notChargingReason == 0 ? .warmingUp : .onBreak
+        }
+        if raw == .warmingUp && age >= Self.warmUpLimit { raw = .onBreak }
+        if raw == .onBreak && age < Self.breakGrace && !liveMood.isPluggedIn {
+            // No reason to go on (older Macs): give charging a moment to start before he sits down.
             return
         }
-        pendingBreak?.invalidate()
-        pendingBreak = nil
         liveMood = raw
+    }
+
+    private func scheduleRecheck(after delay: TimeInterval) {
+        let timer = Timer(timeInterval: delay, repeats: false) { [weak self] _ in
+            Task { @MainActor in
+                guard let self else { return }
+                self.status = PowerMonitor.read()
+                self.updateLiveMood()
+                self.push()
+            }
+        }
+        // .common so it still fires while the settings menu is open.
+        RunLoop.main.add(timer, forMode: .common)
+        settleTimers.append(timer)
     }
 
     func start() {
@@ -239,6 +256,7 @@ final class AppModel: ObservableObject {
             if let load = status.chargerLoad { parts.append("Mac using \(Int((load * 100).rounded()))% of it") }
             if let m = status.minutesToFull { parts.append("full in \(Self.duration(m))") }
             return parts.isEmpty ? "Charging" : parts.joined(separator: " · ")
+        case .warmingUp: return "Plugged in; waiting for macOS to start charging"
         case .onBreak: return "Plugged in; macOS paused charging"
         case .overworked:
             var parts: [String] = []

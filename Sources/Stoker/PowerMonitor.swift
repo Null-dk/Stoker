@@ -17,6 +17,16 @@ struct PowerStatus: Equatable {
     var batteryMilliwatts: Int?
     /// What the Mac itself is using right now, in mW, not counting battery charging.
     var systemMilliwatts: Int?
+    /// Why macOS isn't charging, from the charger's own data: 0 while it's only ramping up
+    /// after being plugged in, a non-zero flag for a deliberate pause (optimized charging,
+    /// charge limit, heat). Nil on Macs that don't report it.
+    var notChargingReason: Int?
+
+    /// Plugged in and not charging yet, but macOS gives no reason: it's still getting going,
+    /// which can take the better part of a minute.
+    var isWarmingUp: Bool {
+        hasBattery && onAC && !isCharging && !isCharged && percent < 100 && notChargingReason == 0
+    }
 
     /// How much of the charger the Mac is using: 0.5 is half, above 1 means the battery tops it up.
     var chargerLoad: Double? {
@@ -124,6 +134,7 @@ final class PowerMonitor {
         let data = dict["BatteryData"] as? [String: Any]
         let telemetry = dict["PowerTelemetryData"] as? [String: Any]
         s.systemMilliwatts = signed(telemetry?["SystemLoad"])
+        s.notChargingReason = signed((dict["ChargerData"] as? [String: Any])?["NotChargingReason"])
         if let mw = signed(data?["BatteryPower"]) {
             s.batteryMilliwatts = mw
         } else if let a = s.amperage, let mv = signed(dict["Voltage"]) {

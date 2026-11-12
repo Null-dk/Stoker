@@ -188,6 +188,19 @@ enum WorkerArt {
         return p
     }
 
+    /// Leaning on the shovel by the furnace, tapping a foot while macOS gets charging going.
+    static func lean(tap: Bool) -> Pose {
+        var p = stand
+        p.hip = P(12, 20); p.shoulder = P(13, 12)
+        p.shovel = ShovelPose(grip: P(18, 13), tip: P(21, 31), loaded: false)
+        if tap { p.footNear = P(16, 27); p.kneeNear = P(15, 23) }
+        return p
+    }
+
+    /// A few taps, then a pause: for the menu bar, at 0.25 s a frame.
+    static let waitTapCycle: [Pose] = [lean(tap: true), lean(tap: false), lean(tap: true), lean(tap: false)]
+        + Array(repeating: lean(tap: false), count: 6)
+
     /// Wrenching the shovel out of the floor in front of him.
     static func yank(_ phase: Int) -> Pose {
         var p = stand

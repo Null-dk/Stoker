@@ -68,6 +68,7 @@ final class StokerScene: SKScene {
     private static let sweatyShovelFrames = WorkerArt.sweatyShovelCycle.map { WorkerArt.render($0).texture() }
     private static let sprintFrames = (0..<4).map { WorkerArt.render(WorkerArt.sprint($0)).texture() }
     private static let sprintCarryFrames = (0..<4).map { WorkerArt.render(WorkerArt.sprint($0, shovel: true)).texture() }
+    private static let leanTextures = [false, true].map { WorkerArt.render(WorkerArt.lean(tap: $0)).texture() }
     private static let yankFrames = (0..<2).map { WorkerArt.render(WorkerArt.yank($0)).texture() }
     private static let flingFrames = (0..<3).map { WorkerArt.render(WorkerArt.fling($0)).texture() }
     private static let pileSteps: [(texture: SKTexture, w: Int, h: Int, cx: CGFloat)] = (0...12).map { i in
@@ -358,7 +359,7 @@ final class StokerScene: SKScene {
             // The fire shows what actually reaches the battery, not how hard he works.
             guard let mw = chargeMilliwatts else { return 3 }
             return mw >= 12_000 ? 3 : mw >= 4_000 ? 2 : 1
-        case .onBreak: return 1
+        case .onBreak, .warmingUp: return 1
         case .overworked: return 0
         case .full: return 2
         case .vacation: return percent > 50 ? 1 : 0
@@ -386,6 +387,14 @@ final class StokerScene: SKScene {
         switch m {
         case .shovelling, .overworked:
             startShovelling()
+        case .warmingUp:
+            // Leaning on the shovel, tapping a foot now and then.
+            worker.texture = Self.leanTextures[0]
+            worker.run(.repeatForever(.sequence([
+                .wait(forDuration: 2.5, withRange: 2),
+                .animate(with: [Self.leanTextures[1], Self.leanTextures[0], Self.leanTextures[1], Self.leanTextures[0],
+                                Self.leanTextures[1], Self.leanTextures[0]], timePerFrame: 0.18),
+            ])), withKey: "act")
         case .onBreak:
             worker.texture = tex("sit")
             steam.particleBirthRate = 2.5
@@ -484,7 +493,7 @@ final class StokerScene: SKScene {
 
         var steps: [SKAction] = [.wait(forDuration: 0.3)]
         // Only fling it if he's actually holding it (not if the plug went out mid-sprint to fetch it).
-        if old.isShovelling && shovelStuck.isHidden && childNode(withName: Self.flyingShovelName) == nil {
+        if old.holdsShovel && shovelStuck.isHidden && childNode(withName: Self.flyingShovelName) == nil {
             steps += [
                 .run { [weak self] in
                     guard let self else { return }
@@ -542,7 +551,7 @@ final class StokerScene: SKScene {
             },
             .wait(forDuration: 0.7),
         ]
-        if new.isShovelling && !shovelStuck.isHidden {
+        if new.holdsShovel && !shovelStuck.isHidden {
             steps.append(.run { [weak self] in self?.sprintForShovel() })
             steps.append(.wait(forDuration: Self.sprintDuration(from: worker.position.x)))
         } else {
