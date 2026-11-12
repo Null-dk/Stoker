@@ -9,6 +9,7 @@ A little pixel-art worker that lives in the corner of your Mac's screen and reac
 - **Low battery:** starts panicking.
 - **100%:** gets buried in coal.
 - **Charging paused** (optimized charging): coffee break.
+- **Charger too weak** (the battery drains while plugged in): shovels flat out and sweats while the fire still dies down. The plaque turns red and alternates with how many watts the battery is losing.
 
 The plaque on the furnace shows your battery percentage.
 

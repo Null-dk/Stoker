@@ -107,6 +107,14 @@ enum WorkerArt {
         return (frames, 1, 11)
     }()
 
+    /// The same cycle, worried and sweating: for when the charger can't keep up.
+    static let sweatyShovelCycle: [Pose] = shovelCycle.frames.map { p in
+        var p = p
+        p.head = .worried
+        p.sweat = true
+        return p
+    }
+
     static var surprised: Pose {
         var p = stand
         p.handRear = P(9, 10); p.handNear = P(17, 9); p.head = .surprised

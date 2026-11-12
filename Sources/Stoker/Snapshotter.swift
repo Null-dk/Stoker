@@ -31,6 +31,8 @@ enum Snapshotter {
 
         let shots: [(String, Mood, PowerStatus)] = [
             ("shovelling", .shovelling, PowerStatus(hasBattery: true, onAC: true, isCharging: true, percent: 64, watts: 96)),
+            ("overworked", .overworked, PowerStatus(hasBattery: true, onAC: true, isCharging: false, percent: 57, watts: 20,
+                                                    amperage: -358, batteryMilliwatts: -4174)),
             ("break", .onBreak, PowerStatus(hasBattery: true, onAC: true, isCharging: false, percent: 80, watts: 67)),
             ("full", .full, PowerStatus(hasBattery: true, onAC: true, isCharging: false, isCharged: true, percent: 100, watts: 67)),
             ("vacation", .vacation, PowerStatus(hasBattery: true, onAC: false, percent: 57)),
@@ -41,7 +43,7 @@ enum Snapshotter {
             guard i < shots.count else { NSApp.terminate(nil); return }
             let (name, mood, status) = shots[i]
             scene.apply(mood: mood, status: status, animated: false)
-            scene.say(mood.lines(watts: status.watts).first ?? "")
+            scene.say(mood.lines(watts: status.watts, deficit: status.deficitWatts).first ?? "")
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.7) {
                 if let tex = view.texture(from: scene) {
                     write(upscale(tex.cgImage(), by: 3), to: url.appendingPathComponent("\(name).png"))
@@ -54,6 +56,7 @@ enum Snapshotter {
 
     private static func writeSheet(to url: URL) {
         var poses: [Pose] = WorkerArt.shovelCycle.frames
+        poses.append(WorkerArt.sweatyShovelCycle[0])
         poses += [WorkerArt.stand, WorkerArt.surprised, WorkerArt.stretch, WorkerArt.sit, WorkerArt.sitSip,
                   WorkerArt.recline, WorkerArt.reclineSip, WorkerArt.walk(0), WorkerArt.walk(1),
                   WorkerArt.walk(2), WorkerArt.walk(3), WorkerArt.wave(0), WorkerArt.wave(1)]

@@ -11,6 +11,28 @@ struct PowerStatus: Equatable {
     var watts: Int?
     var minutesToFull: Int?
     var minutesToEmpty: Int?
+    /// Battery current in mA from the smart battery: positive while charging, negative while draining.
+    var amperage: Int?
+    /// Power flowing into (+) or out of (−) the battery, in mW.
+    var batteryMilliwatts: Int?
+
+    /// Plugged in, but the Mac uses more than the charger delivers, so the battery drains anyway.
+    /// A deliberate pause (optimized charging, charge limit) holds the current near zero instead.
+    /// Goes by the current alone: under load macOS can keep saying "charging" while it drains.
+    var isLosingPower: Bool {
+        guard hasBattery, onAC, let a = amperage else { return false }
+        return a <= Self.drainThreshold
+    }
+
+    /// Below this current (mA) the battery is really draining, not just idling around zero.
+    static let drainThreshold = -100
+
+    /// How many watts the battery is losing while plugged in, rounded, at least 1.
+    var deficitWatts: Int? {
+        guard isLosingPower else { return nil }
+        let mw = batteryMilliwatts.map(abs) ?? 0
+        return max(1, Int((Double(mw) / 1000).rounded()))
+    }
 }
 
 /// Listens for IOKit power-source notifications and reports changes.
@@ -72,9 +94,37 @@ final class PowerMonitor {
             if let t = desc[kIOPSTimeToEmptyKey] as? Int, t > 0 { s.minutesToEmpty = t }
         }
 
+        if s.hasBattery { readSmartBattery(into: &s) }
+
         if s.onAC, let adapter = IOPSCopyExternalPowerAdapterDetails()?.takeRetainedValue() as? [String: Any] {
             s.watts = adapter[kIOPSPowerAdapterWattsKey] as? Int
         }
         return s
+    }
+
+    /// Battery current and power aren't in the IOPS dictionaries, so read them from IORegistry.
+    /// macOS refreshes these roughly every half minute.
+    private static func readSmartBattery(into s: inout PowerStatus) {
+        let service = IOServiceGetMatchingService(kIOMainPortDefault, IOServiceMatching("AppleSmartBattery"))
+        guard service != 0 else { return }
+        defer { IOObjectRelease(service) }
+        var props: Unmanaged<CFMutableDictionary>?
+        guard IORegistryEntryCreateCFProperties(service, &props, kCFAllocatorDefault, 0) == KERN_SUCCESS,
+              let dict = props?.takeRetainedValue() as? [String: Any] else { return }
+
+        s.amperage = signed(dict["InstantAmperage"]) ?? signed(dict["Amperage"])
+        let data = dict["BatteryData"] as? [String: Any]
+        if let mw = signed(data?["BatteryPower"]) {
+            s.batteryMilliwatts = mw
+        } else if let a = s.amperage, let mv = signed(dict["Voltage"]) {
+            s.batteryMilliwatts = a * mv / 1000
+        }
+    }
+
+    /// The registry stores negative currents as 64-bit two's complement; reading the raw bits
+    /// as Int64 gives the signed value whether the number arrives signed or unsigned.
+    private static func signed(_ value: Any?) -> Int? {
+        guard let n = value as? NSNumber else { return nil }
+        return Int(truncatingIfNeeded: n.int64Value)
     }
 }

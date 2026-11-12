@@ -150,14 +150,17 @@ final class AppModel: ObservableObject {
 
     private func updateLiveMood() {
         let raw = Mood(status)
-        if raw == .onBreak && !liveMood.isPluggedIn {
+        if (raw == .onBreak || raw == .overworked) && !liveMood.isPluggedIn {
             // Just plugged in and macOS doesn't say "charging" yet. Usually it will in a second
-            // or two; without this he'd sit down for coffee and then jump up to shovel.
+            // or two; without this he'd sit down for coffee and then jump up to shovel. The battery
+            // current also lags behind, so it can still read "draining" for a moment.
             guard pendingBreak == nil else { return }
             let timer = Timer(timeInterval: Self.breakGrace, repeats: false) { [weak self] _ in
                 Task { @MainActor in
                     guard let self else { return }
                     self.pendingBreak = nil
+                    // The 30 s poll may not have run since; read fresh numbers.
+                    self.status = PowerMonitor.read()
                     self.liveMood = Mood(self.status)
                     self.push()
                 }
@@ -236,6 +239,11 @@ final class AppModel: ObservableObject {
             if let m = status.minutesToFull { parts.append("full in \(Self.duration(m))") }
             return parts.isEmpty ? "Charging" : parts.joined(separator: " · ")
         case .onBreak: return "Plugged in; macOS paused charging"
+        case .overworked:
+            var parts: [String] = []
+            if let w = status.watts { parts.append("\(w) W charger can't keep up") }
+            if let d = status.deficitWatts { parts.append("battery losing \(d) W") }
+            return parts.isEmpty ? "Plugged in, but the battery is draining" : parts.joined(separator: " · ")
         case .full: return "Fully charged. Unplug to rescue the worker."
         case .vacation, .panicking:
             if let m = status.minutesToEmpty { return "On battery · \(Self.duration(m)) left" }
