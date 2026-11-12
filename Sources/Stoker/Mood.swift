@@ -18,8 +18,10 @@ enum Mood: String, CaseIterable, Identifiable {
     init(_ s: PowerStatus) {
         guard s.hasBattery else { self = .shovelling; return }
         if s.onAC {
-            if s.isCharging { self = .shovelling }
-            else if s.isCharged || s.percent >= 100 { self = .full }
+            // Check "full" first: at 100% macOS often keeps reporting IsCharging while it tops
+            // off the last bit, sometimes even alongside FullyCharged.
+            if s.isCharged || s.percent >= 100 { self = .full }
+            else if s.isCharging { self = .shovelling }
             else { self = .onBreak }
         } else {
             self = s.percent <= 20 ? .panicking : .vacation
