@@ -15,6 +15,14 @@ struct PowerStatus: Equatable {
     var amperage: Int?
     /// Power flowing into (+) or out of (−) the battery, in mW.
     var batteryMilliwatts: Int?
+    /// What the Mac itself is using right now, in mW, not counting battery charging.
+    var systemMilliwatts: Int?
+
+    /// How much of the charger the Mac is using: 0.5 is half, above 1 means the battery tops it up.
+    var chargerLoad: Double? {
+        guard onAC, let w = watts, w > 0, let mw = systemMilliwatts, mw > 0 else { return nil }
+        return Double(mw) / Double(w * 1000)
+    }
 
     /// Plugged in, but the Mac uses more than the charger delivers, so the battery drains anyway.
     /// A deliberate pause (optimized charging, charge limit) holds the current near zero instead.
@@ -114,6 +122,8 @@ final class PowerMonitor {
 
         s.amperage = signed(dict["InstantAmperage"]) ?? signed(dict["Amperage"])
         let data = dict["BatteryData"] as? [String: Any]
+        let telemetry = dict["PowerTelemetryData"] as? [String: Any]
+        s.systemMilliwatts = signed(telemetry?["SystemLoad"])
         if let mw = signed(data?["BatteryPower"]) {
             s.batteryMilliwatts = mw
         } else if let a = s.amperage, let mv = signed(dict["Voltage"]) {

@@ -30,9 +30,12 @@ enum Snapshotter {
         view.presentScene(scene)
 
         let shots: [(String, Mood, PowerStatus)] = [
-            ("shovelling", .shovelling, PowerStatus(hasBattery: true, onAC: true, isCharging: true, percent: 64, watts: 96)),
+            ("shovelling", .shovelling, PowerStatus(hasBattery: true, onAC: true, isCharging: true, percent: 64, watts: 96,
+                                                    amperage: 1500, batteryMilliwatts: 18_000, systemMilliwatts: 12_000)),
+            ("shovelling-frantic", .shovelling, PowerStatus(hasBattery: true, onAC: true, isCharging: true, percent: 57, watts: 20,
+                                                            amperage: 0, batteryMilliwatts: 0, systemMilliwatts: 18_700)),
             ("overworked", .overworked, PowerStatus(hasBattery: true, onAC: true, isCharging: false, percent: 57, watts: 20,
-                                                    amperage: -358, batteryMilliwatts: -4174)),
+                                                    amperage: -310, batteryMilliwatts: -3600, systemMilliwatts: 22_300)),
             ("break", .onBreak, PowerStatus(hasBattery: true, onAC: true, isCharging: false, percent: 80, watts: 67)),
             ("full", .full, PowerStatus(hasBattery: true, onAC: true, isCharging: false, isCharged: true, percent: 100, watts: 67)),
             ("vacation", .vacation, PowerStatus(hasBattery: true, onAC: false, percent: 57)),
@@ -43,7 +46,7 @@ enum Snapshotter {
             guard i < shots.count else { NSApp.terminate(nil); return }
             let (name, mood, status) = shots[i]
             scene.apply(mood: mood, status: status, animated: false)
-            scene.say(mood.lines(watts: status.watts, deficit: status.deficitWatts).first ?? "")
+            scene.say(mood.lines(watts: status.watts, deficit: status.deficitWatts, effort: Effort(status)).last ?? "")
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.7) {
                 if let tex = view.texture(from: scene) {
                     write(upscale(tex.cgImage(), by: 3), to: url.appendingPathComponent("\(name).png"))

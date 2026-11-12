@@ -236,6 +236,7 @@ final class AppModel: ObservableObject {
         case .shovelling:
             var parts: [String] = []
             if let w = status.watts { parts.append("\(w) W charger") }
+            if let load = status.chargerLoad { parts.append("Mac using \(Int((load * 100).rounded()))% of it") }
             if let m = status.minutesToFull { parts.append("full in \(Self.duration(m))") }
             return parts.isEmpty ? "Charging" : parts.joined(separator: " · ")
         case .onBreak: return "Plugged in; macOS paused charging"

@@ -1,5 +1,35 @@
 import Foundation
 
+/// How hard he shovels: how close the Mac is to using everything the charger gives.
+/// Stepped rather than continuous so the animation doesn't restart on every small change.
+enum Effort: Int, CaseIterable {
+    case relaxed, steady, hard, frantic
+
+    init(_ s: PowerStatus) {
+        // No telemetry (older Macs): a steady middle pace.
+        guard let load = s.chargerLoad else { self = .steady; return }
+        switch load {
+        case ..<0.5: self = .relaxed
+        case ..<0.75: self = .steady
+        case ..<0.9: self = .hard
+        default: self = .frantic
+        }
+    }
+
+    /// Seconds per shovel swing.
+    var cycle: TimeInterval {
+        switch self {
+        case .relaxed: 1.6
+        case .steady: 1.25
+        case .hard: 0.95
+        case .frantic: 0.7
+        }
+    }
+
+    /// Beyond frantic: the charger is maxed out and the battery is draining anyway.
+    static let overworkedCycle: TimeInterval = 0.6
+}
+
 /// What the little stoker is up to, derived from the power status.
 enum Mood: String, CaseIterable, Identifiable {
     /// Plugged in and charging: shovel coal into the furnace.
@@ -59,13 +89,19 @@ enum Mood: String, CaseIterable, Identifiable {
     }
 
     /// Things the worker mutters now and then. Upper case only: the pixel font has no lower case.
-    func lines(watts: Int?, deficit: Int? = nil) -> [String] {
+    func lines(watts: Int?, deficit: Int? = nil, effort: Effort = .steady) -> [String] {
         switch self {
         case .shovelling:
             var l = ["MORE COAL!", "ANOTHER DAY, ANOTHER WATT", "MY BACK...", "SHOVEL SHOVEL SHOVEL",
                      "WHO KEEPS USING CHROME?", "ELECTRONS DON'T GROW ON TREES"]
             if let w = watts {
-                l.append(w >= 90 ? "\(w)W?! SLOW DOWN!" : "\(w)W. I'M ON IT")
+                l.append(w >= 90 ? "\(w)W?! SO MUCH COAL!" : "\(w)W. I'M ON IT")
+            }
+            switch effort {
+            case .relaxed: l += ["NICE AND EASY", "EASY SHIFT TODAY"]
+            case .steady: break
+            case .hard: l += ["PUTTING MY BACK INTO IT", "BUSY DAY, BOSS?"]
+            case .frantic: l += ["BARELY KEEPING UP!", "DON'T OPEN ANOTHER TAB"]
             }
             return l
         case .onBreak:

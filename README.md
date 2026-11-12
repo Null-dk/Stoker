@@ -4,7 +4,7 @@ A little pixel-art worker that lives in the corner of your Mac's screen and reac
 
 ![Shovelling coal](docs/shovelling.png)
 
-- **Charging:** shovels coal into the furnace. A faster charger means faster shovelling.
+- **Charging:** shovels coal into the furnace. How fast he shovels shows how much of the charger your Mac is using: relaxed when it's idle, frantic near the limit. A bigger charger pours in more coal, and the fire shows how fast the battery is actually charging.
 - **Unplugged:** throws the shovel away and gets out the beach chair.
 - **Low battery:** starts panicking.
 - **100%:** gets buried in coal.
