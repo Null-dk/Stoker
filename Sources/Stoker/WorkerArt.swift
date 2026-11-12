@@ -163,6 +163,76 @@ enum WorkerArt {
         return p
     }
 
+    /// A flat-out run, leaning forward with long strides. With `shovel`, carried at port arms.
+    static func sprint(_ phase: Int, shovel: Bool = false) -> Pose {
+        var p = stand
+        p.head = .surprised
+        p.hip = P(13, 20); p.shoulder = P(15, 12)
+        let up = phase % 2 == 1
+        if up { p.hip.y = 19; p.shoulder.y = 11 }
+        switch phase % 4 {
+        case 0: p.kneeRear = P(10, 24); p.footRear = P(7, 27); p.kneeNear = P(17, 23); p.footNear = P(18, 28)
+            p.handRear = P(18, 15); p.handNear = P(12, 18)
+        case 1: p.kneeRear = P(12, 24); p.footRear = P(9, 25); p.kneeNear = P(16, 22); p.footNear = P(15, 27)
+            p.handRear = P(16, 16); p.handNear = P(14, 17)
+        case 2: p.kneeRear = P(17, 23); p.footRear = P(18, 28); p.kneeNear = P(10, 24); p.footNear = P(7, 27)
+            p.handRear = P(12, 18); p.handNear = P(18, 15)
+        default: p.kneeRear = P(16, 22); p.footRear = P(15, 27); p.kneeNear = P(12, 24); p.footNear = P(9, 25)
+            p.handRear = P(14, 17); p.handNear = P(16, 16)
+        }
+        if shovel {
+            p.head = .normal
+            let bob: CGFloat = up ? -1 : 0
+            p.shovel = ShovelPose(grip: P(10, 19 + bob), tip: P(30, 13 + bob), loaded: false)
+        }
+        return p
+    }
+
+    /// Leaning on the shovel by the furnace, tapping a foot while macOS gets charging going.
+    static func lean(tap: Bool) -> Pose {
+        var p = stand
+        p.hip = P(12, 20); p.shoulder = P(13, 12)
+        p.shovel = ShovelPose(grip: P(18, 13), tip: P(21, 31), loaded: false)
+        if tap { p.footNear = P(16, 27); p.kneeNear = P(15, 23) }
+        return p
+    }
+
+    /// A few taps, then a pause: for the menu bar, at 0.25 s a frame.
+    static let waitTapCycle: [Pose] = [lean(tap: true), lean(tap: false), lean(tap: true), lean(tap: false)]
+        + Array(repeating: lean(tap: false), count: 6)
+
+    /// Wrenching the shovel out of the floor in front of him.
+    static func yank(_ phase: Int) -> Pose {
+        var p = stand
+        if phase == 0 {
+            p.hip = P(12, 21); p.shoulder = P(15, 13)
+            p.kneeRear = P(10, 25); p.footRear = P(9, 28); p.kneeNear = P(15, 24); p.footNear = P(16, 28)
+            p.shovel = ShovelPose(grip: P(18, 12), tip: P(19, 32), loaded: false)
+        } else {
+            p.hip = P(12, 19); p.shoulder = P(12, 11)
+            p.shovel = ShovelPose(grip: P(17, 4), tip: P(18, 24), loaded: false)
+        }
+        return p
+    }
+
+    /// Flinging the shovel backwards over his shoulder: wind up low in front, then heave it overhead.
+    static func fling(_ phase: Int) -> Pose {
+        var p = stand
+        switch phase {
+        case 0:
+            p.hip = P(12, 21); p.shoulder = P(15, 14)
+            p.kneeRear = P(10, 25); p.footRear = P(9, 28); p.kneeNear = P(15, 24); p.footNear = P(16, 28)
+            p.shovel = ShovelPose(grip: P(16, 18), tip: P(33, 25), loaded: false)
+        case 1:
+            p.hip = P(11, 20); p.shoulder = P(10, 12)
+            p.shovel = ShovelPose(grip: P(12, 5), tip: P(2, -3), loaded: false)
+        default:
+            p.hip = P(11, 20); p.shoulder = P(10, 12); p.head = .closed
+            p.handRear = P(5, 6); p.handNear = P(7, 5)
+        }
+        return p
+    }
+
     static func wave(_ phase: Int) -> Pose {
         var p = stand
         p.head = phase % 2 == 0 ? .worried : .surprised

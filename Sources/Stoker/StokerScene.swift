@@ -66,6 +66,11 @@ final class StokerScene: SKScene {
     private static let shovelTexture = PropArt.shovel().texture()
     private static let shovelFrames = WorkerArt.shovelCycle.frames.map { WorkerArt.render($0).texture() }
     private static let sweatyShovelFrames = WorkerArt.sweatyShovelCycle.map { WorkerArt.render($0).texture() }
+    private static let sprintFrames = (0..<4).map { WorkerArt.render(WorkerArt.sprint($0)).texture() }
+    private static let sprintCarryFrames = (0..<4).map { WorkerArt.render(WorkerArt.sprint($0, shovel: true)).texture() }
+    private static let leanTextures = [false, true].map { WorkerArt.render(WorkerArt.lean(tap: $0)).texture() }
+    private static let yankFrames = (0..<2).map { WorkerArt.render(WorkerArt.yank($0)).texture() }
+    private static let flingFrames = (0..<3).map { WorkerArt.render(WorkerArt.fling($0)).texture() }
     private static let pileSteps: [(texture: SKTexture, w: Int, h: Int, cx: CGFloat)] = (0...12).map { i in
         let t = CGFloat(i) / 12
         var w = Int((22 + 50 * t).rounded())
@@ -354,7 +359,7 @@ final class StokerScene: SKScene {
             // The fire shows what actually reaches the battery, not how hard he works.
             guard let mw = chargeMilliwatts else { return 3 }
             return mw >= 12_000 ? 3 : mw >= 4_000 ? 2 : 1
-        case .onBreak: return 1
+        case .onBreak, .warmingUp: return 1
         case .overworked: return 0
         case .full: return 2
         case .vacation: return percent > 50 ? 1 : 0
@@ -382,6 +387,14 @@ final class StokerScene: SKScene {
         switch m {
         case .shovelling, .overworked:
             startShovelling()
+        case .warmingUp:
+            // Leaning on the shovel, tapping a foot now and then.
+            worker.texture = Self.leanTextures[0]
+            worker.run(.repeatForever(.sequence([
+                .wait(forDuration: 2.5, withRange: 2),
+                .animate(with: [Self.leanTextures[1], Self.leanTextures[0], Self.leanTextures[1], Self.leanTextures[0],
+                                Self.leanTextures[1], Self.leanTextures[0]], timePerFrame: 0.18),
+            ])), withKey: "act")
         case .onBreak:
             worker.texture = tex("sit")
             steam.particleBirthRate = 2.5
@@ -470,6 +483,7 @@ final class StokerScene: SKScene {
 
     private func unplugged(from old: Mood, to new: Mood) {
         worker.removeAction(forKey: "act")
+        worker.removeAction(forKey: "pace")
         setPouring(false)
         setPlug(lowered: false, animated: true)
         sound(.plug, 0.6)
@@ -478,12 +492,25 @@ final class StokerScene: SKScene {
         steam.particleBirthRate = 0
 
         var steps: [SKAction] = [.wait(forDuration: 0.3)]
-        if old.isShovelling {
-            steps.append(.run { [weak self] in self?.throwShovel() })
-            steps.append(.wait(forDuration: 0.9))
+        // Only fling it if he's actually holding it (not if the plug went out mid-sprint to fetch it).
+        if old.holdsShovel && shovelStuck.isHidden && childNode(withName: Self.flyingShovelName) == nil {
+            steps += [
+                .run { [weak self] in
+                    guard let self else { return }
+                    // Turn his back on the furnace and wind up.
+                    self.worker.xScale = -1
+                    self.worker.texture = Self.flingFrames[0]
+                },
+                .wait(forDuration: 0.4),
+                .run { [weak self] in self?.worker.texture = Self.flingFrames[1] },
+                .wait(forDuration: 0.08),
+                .run { [weak self] in self?.flingShovel() },
+                .wait(forDuration: 1.0),
+            ]
         }
         steps.append(.run { [weak self] in
             guard let self else { return }
+            self.worker.xScale = 1
             self.worker.texture = self.tex("stretch")
             self.say("FINALLY!", duration: 1.8)
             self.sound(.sigh, 0.6)
@@ -496,31 +523,102 @@ final class StokerScene: SKScene {
     private func pluggedIn(to new: Mood) {
         setPlug(lowered: true, animated: true)
         sound(.plug, 0.6)
+        // A shovel still in the air from a quick unplug lands instantly so he can go get it.
+        if let flying = childNode(withName: Self.flyingShovelName) {
+            flying.removeFromParent()
+            shovelStuck.removeAction(forKey: "vis")
+            shovelStuck.isHidden = false
+            shovelStuck.setScale(1)
+        }
         var steps: [SKAction] = [
-            .wait(forDuration: 0.45),
+            .wait(forDuration: 0.3),
+            .run { [weak self] in self?.sound(.whistle, 0.45, 0.4) },
+            .wait(forDuration: 0.15),
             .run { [weak self] in
                 guard let self else { return }
                 self.worker.removeAction(forKey: "act")
                 self.worker.removeAction(forKey: "pace")
                 self.worker.xScale = 1
-                self.worker.position = CGPoint(x: Self.workerHomeX, y: Self.floorY)
+                self.worker.position.y = Self.floorY
                 self.worker.texture = self.tex("surprised")
                 self.worker.run(.sequence([
                     .moveBy(x: 0, y: 4, duration: 0.12), .moveBy(x: 0, y: -4, duration: 0.12),
-                ]))
+                ]), withKey: "act")
                 self.show(self.chair, false, animated: true)
                 self.show(self.parasol, false, animated: true)
                 self.say("!", duration: 1.0)
                 self.sound(.gasp, 0.5)
             },
-            .wait(forDuration: 1.0),
+            .wait(forDuration: 0.7),
         ]
-        if new.isShovelling {
-            steps.append(.run { [weak self] in self?.fetchShovel() })
-            steps.append(.wait(forDuration: 0.4))
+        if new.holdsShovel && !shovelStuck.isHidden {
+            steps.append(.run { [weak self] in self?.sprintForShovel() })
+            steps.append(.wait(forDuration: Self.sprintDuration(from: worker.position.x)))
+        } else {
+            steps.append(.run { [weak self] in
+                guard let self else { return }
+                self.worker.run(.moveTo(x: Self.workerHomeX, duration: 0.2), withKey: "pace")
+            })
+            steps.append(.wait(forDuration: 0.25))
         }
         steps.append(.run { [weak self] in self?.enter(new, animated: true) })
         run(.sequence(steps), withKey: "transition")
+    }
+
+    // MARK: Sprint
+
+    private static let sprintSpeed: CGFloat = 48
+    /// Where his feet stop so his hands reach the stuck shovel.
+    private static let shovelReachX: CGFloat = 54
+    private static let yankTime: TimeInterval = 0.55
+
+    private static func sprintDuration(from x: CGFloat) -> TimeInterval {
+        TimeInterval(abs(shovelReachX - x) / sprintSpeed) + yankTime
+            + TimeInterval((shovelReachX - workerHomeX) / sprintSpeed) + 0.05
+    }
+
+    /// Dash over to the shovel, yank it out of the floor, and dash back to the furnace spot with it.
+    private func sprintForShovel() {
+        let x0 = worker.position.x
+        worker.removeAction(forKey: "act")
+        worker.removeAction(forKey: "pace")
+        worker.xScale = 1
+        worker.position.y = Self.floorY
+        let legs = SKAction.repeatForever(.animate(with: Self.sprintFrames, timePerFrame: 0.07))
+        let legsBack = SKAction.repeatForever(.animate(with: Self.sprintCarryFrames, timePerFrame: 0.07))
+        let out = TimeInterval(abs(Self.shovelReachX - x0) / Self.sprintSpeed)
+        let back = TimeInterval((Self.shovelReachX - Self.workerHomeX) / Self.sprintSpeed)
+        worker.run(legs, withKey: "act")
+        worker.run(.sequence([
+            .moveTo(x: Self.shovelReachX, duration: out),
+            .run { [weak self] in
+                guard let self else { return }
+                self.worker.removeAction(forKey: "act")
+                self.worker.texture = Self.yankFrames[0]
+            },
+            .wait(forDuration: 0.2),
+            .run { [weak self] in
+                guard let self else { return }
+                self.shovelStuck.removeAction(forKey: "vis")
+                self.shovelStuck.isHidden = true
+                self.worker.texture = Self.yankFrames[1]
+                self.sound(.scrape, 0.45, 0)
+            },
+            .moveBy(x: 0, y: 2, duration: 0.1),
+            .moveBy(x: 0, y: -2, duration: 0.1),
+            .wait(forDuration: Self.yankTime - 0.4),
+            .run { [weak self] in
+                guard let self else { return }
+                self.worker.xScale = -1
+                self.worker.run(legsBack, withKey: "act")
+            },
+            .moveTo(x: Self.workerHomeX, duration: back),
+            .run { [weak self] in
+                guard let self else { return }
+                self.worker.removeAction(forKey: "act")
+                self.worker.xScale = 1
+            },
+        ]), withKey: "pace")
     }
 
     // MARK: Effects
@@ -585,13 +683,14 @@ final class StokerScene: SKScene {
     private func flyingShovel(from: CGPoint, to: CGPoint, duration: TimeInterval, spins: CGFloat,
                               completion: @escaping () -> Void) {
         let s = SKSpriteNode(texture: Self.shovelTexture)
+        s.name = Self.flyingShovelName
         s.size = CGSize(width: 10, height: 24)
         s.position = from
         s.zPosition = 9
         addChild(s)
         let path = CGMutablePath()
         path.move(to: from)
-        path.addQuadCurve(to: to, control: CGPoint(x: (from.x + to.x) / 2, y: max(from.y, to.y) + 22))
+        path.addQuadCurve(to: to, control: CGPoint(x: (from.x + to.x) / 2, y: max(from.y, to.y) + 18))
         s.run(.sequence([
             .group([.follow(path, asOffset: false, orientToPath: false, duration: duration),
                     .rotate(byAngle: -.pi * 2 * spins, duration: duration)]),
@@ -600,24 +699,25 @@ final class StokerScene: SKScene {
         ]))
     }
 
-    private func throwShovel() {
-        worker.texture = tex("stand")
+    private static let flyingShovelName = "flyingShovel"
+
+    /// Release the shovel from over his shoulder; it cartwheels behind him and sticks in the floor.
+    private func flingShovel() {
+        worker.texture = Self.flingFrames[2]
+        // The shovel head in the heave frame, mapped from design pixels into the (flipped) scene.
+        let d = P(4, -1)
+        let from = CGPoint(x: worker.position.x + worker.xScale * (d.x - CGFloat(WorkerArt.feetX)),
+                           y: Self.floorY + CGFloat(WorkerArt.height) - (d.y + WorkerArt.yOffset))
         let target = shovelStuck.position + P(0, 12)
-        flyingShovel(from: CGPoint(x: worker.position.x + 8, y: 22), to: target, duration: 0.7, spins: 2) { [weak self] in
+        sound(.scrape, 0.2, 0)
+        flyingShovel(from: from, to: target, duration: 0.75, spins: 2) { [weak self] in
             guard let self else { return }
+            self.shovelStuck.removeAction(forKey: "vis")
             self.shovelStuck.isHidden = false
             self.shovelStuck.setScale(1)
             self.sound(.clang, 0.5, -0.1)
             self.sparks(at: target + P(0, -6))
         }
-    }
-
-    private func fetchShovel() {
-        guard !shovelStuck.isHidden else { return }
-        shovelStuck.removeAction(forKey: "vis")
-        shovelStuck.isHidden = true
-        let from = shovelStuck.position + P(0, 12)
-        flyingShovel(from: from, to: CGPoint(x: worker.position.x + 6, y: 20), duration: 0.35, spins: 1) {}
     }
 
     private func setFire(_ level: Int) {

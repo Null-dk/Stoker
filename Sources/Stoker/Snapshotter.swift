@@ -36,6 +36,8 @@ enum Snapshotter {
                                                             amperage: 0, batteryMilliwatts: 0, systemMilliwatts: 18_700)),
             ("overworked", .overworked, PowerStatus(hasBattery: true, onAC: true, isCharging: false, percent: 57, watts: 20,
                                                     amperage: -310, batteryMilliwatts: -3600, systemMilliwatts: 22_300)),
+            ("warming-up", .warmingUp, PowerStatus(hasBattery: true, onAC: true, isCharging: false, percent: 69, watts: 35,
+                                                   amperage: 556, notChargingReason: 0)),
             ("break", .onBreak, PowerStatus(hasBattery: true, onAC: true, isCharging: false, percent: 80, watts: 67)),
             ("full", .full, PowerStatus(hasBattery: true, onAC: true, isCharging: false, isCharged: true, percent: 100, watts: 67)),
             ("vacation", .vacation, PowerStatus(hasBattery: true, onAC: false, percent: 57)),
@@ -63,6 +65,9 @@ enum Snapshotter {
         poses += [WorkerArt.stand, WorkerArt.surprised, WorkerArt.stretch, WorkerArt.sit, WorkerArt.sitSip,
                   WorkerArt.recline, WorkerArt.reclineSip, WorkerArt.walk(0), WorkerArt.walk(1),
                   WorkerArt.walk(2), WorkerArt.walk(3), WorkerArt.wave(0), WorkerArt.wave(1)]
+        poses += (0..<4).map { WorkerArt.sprint($0) } + (0..<4).map { WorkerArt.sprint($0, shovel: true) }
+        poses += [WorkerArt.lean(tap: false), WorkerArt.lean(tap: true)]
+        poses += (0..<2).map(WorkerArt.yank) + (0..<3).map(WorkerArt.fling)
         let cols = 8
         let rows = (poses.count + cols - 1) / cols
         let cw = WorkerArt.width + 2, ch = WorkerArt.height + 2

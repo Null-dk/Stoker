@@ -34,6 +34,8 @@ enum Effort: Int, CaseIterable {
 enum Mood: String, CaseIterable, Identifiable {
     /// Plugged in and charging: shovel coal into the furnace.
     case shovelling
+    /// Just plugged in and macOS hasn't started charging yet: shovel in hand, waiting for the coal.
+    case warmingUp
     /// Plugged in but macOS paused charging (optimized charging, charge limit, heat…): coffee break.
     case onBreak
     /// Plugged in, but the charger is too weak: shovelling flat out while the fire still dies down.
@@ -55,20 +57,25 @@ enum Mood: String, CaseIterable, Identifiable {
             if s.isCharged || s.percent >= 100 { self = .full }
             else if s.isLosingPower { self = .overworked }
             else if s.isCharging { self = .shovelling }
+            else if s.isWarmingUp { self = .warmingUp }
             else { self = .onBreak }
         } else {
             self = s.percent <= 20 ? .panicking : .vacation
         }
     }
 
-    var isPluggedIn: Bool { self == .shovelling || self == .onBreak || self == .overworked || self == .full }
+    var isPluggedIn: Bool { self != .vacation && self != .panicking }
 
     /// Moods where he's holding the shovel and working.
     var isShovelling: Bool { self == .shovelling || self == .overworked }
 
+    /// Moods where he has the shovel in hand, working or not.
+    var holdsShovel: Bool { isShovelling || self == .warmingUp }
+
     var title: String {
         switch self {
         case .shovelling: "Shovelling coal"
+        case .warmingUp: "Warming up"
         case .onBreak: "On a union break"
         case .overworked: "Can't keep up"
         case .full: "Buried in coal"
@@ -80,6 +87,7 @@ enum Mood: String, CaseIterable, Identifiable {
     var symbol: String {
         switch self {
         case .shovelling: "flame.fill"
+        case .warmingUp: "hourglass"
         case .onBreak: "cup.and.saucer.fill"
         case .overworked: "flame"
         case .full: "mountain.2.fill"
@@ -104,6 +112,9 @@ enum Mood: String, CaseIterable, Identifiable {
             case .frantic: l += ["BARELY KEEPING UP!", "DON'T OPEN ANOTHER TAB"]
             }
             return l
+        case .warmingUp:
+            return ["WAITING ON MACOS...", "ANY SECOND NOW", "COAL'S ON ITS WAY", "WARMING UP THE BOILER",
+                    "READY WHEN YOU ARE", "TAP TAP TAP"]
         case .onBreak:
             return ["UNION BREAK", "OPTIMIZED CHARGING, BABY", "COFFEE FIRST", "BOSS SAID WAIT",
                     "BATTERY HEALTH IS SELF CARE"]
