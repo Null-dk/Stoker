@@ -105,6 +105,7 @@ final class StageController: NSObject {
         window.ignoresMouseEvents = !model.isMoving
         scene.dragEnabled = model.isMoving
         scene.chatty = model.chatty
+        scene.plaqueMode = model.plaqueMode
 
         // Size & position
         switch model.display {
